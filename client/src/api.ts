@@ -47,3 +47,40 @@ export const getInvestmentSummary = (propertyId: number) => request<any>(`/analy
 export const getForecasts = (propertyId: number) => request<any[]>(`/analytics/forecast/${propertyId}`);
 export const getRecommendations = (propertyId: number) => request<any[]>(`/analytics/recommendations/${propertyId}`);
 export const getCompleteAnalysis = (propertyId: number) => request<any>(`/analytics/complete/${propertyId}`);
+
+// File Upload
+export async function uploadMortgageReport(mortgageId: number, file: File): Promise<any> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${BASE}/upload/mortgage-report/${mortgageId}`, {
+    method: 'POST',
+    body: formData,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'שגיאה בהעלאת הקובץ');
+  return data;
+}
+
+export async function uploadExpenses(propertyId: number, file: File): Promise<any> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${BASE}/upload/expenses/${propertyId}`, {
+    method: 'POST',
+    body: formData,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'שגיאה בהעלאת הקובץ');
+  return data;
+}
+
+export async function uploadRentalPayments(propertyId: number, file: File): Promise<any> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${BASE}/upload/rental-payments/${propertyId}`, {
+    method: 'POST',
+    body: formData,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'שגיאה בהעלאת הקובץ');
+  return data;
+}

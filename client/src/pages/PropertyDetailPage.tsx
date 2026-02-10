@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowRight, Landmark, Users, Receipt, Plus, Trash2, X } from 'lucide-react';
-import { getProperty, getMortgages, createMortgage, deleteMortgage, addMortgagePayment, getMortgagePayments, getTenants, createTenant, deleteTenant, addRentalPayment, getExpenses, createExpense, deleteExpense } from '../api';
+import { ArrowRight, Landmark, Users, Receipt, Plus, Trash2, X, Upload, FileSpreadsheet, CheckCircle, AlertCircle } from 'lucide-react';
+import { getProperty, getMortgages, createMortgage, deleteMortgage, addMortgagePayment, getMortgagePayments, getTenants, createTenant, deleteTenant, addRentalPayment, getExpenses, createExpense, deleteExpense, uploadMortgageReport, uploadExpenses, uploadRentalPayments } from '../api';
 import { Property, Mortgage, MortgagePayment, Tenant, Expense, EXPENSE_CATEGORIES, TRACK_TYPES } from '../types';
 import { formatCurrency, formatDate } from '../utils/format';
 
@@ -87,15 +87,97 @@ export default function PropertyDetailPage() {
   );
 }
 
+// === File Upload Component ===
+function FileUploadZone({ onUpload, label, accept, uploading }: { onUpload: (file: File) => void; label: string; accept?: string; uploading?: boolean }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) onUpload(file);
+  }
+
+  return (
+    <div
+      className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${
+        dragOver ? 'border-primary-500 bg-primary-50' : 'border-gray-300 hover:border-primary-400 hover:bg-gray-50'
+      } ${uploading ? 'opacity-50 pointer-events-none' : ''}`}
+      onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={handleDrop}
+      onClick={() => fileRef.current?.click()}
+    >
+      <input
+        ref={fileRef}
+        type="file"
+        className="hidden"
+        accept={accept || '.xlsx,.xls,.csv'}
+        onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ''; }}
+      />
+      {uploading ? (
+        <div className="flex flex-col items-center gap-2">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600" />
+          <p className="text-sm text-gray-500">מעבד את הקובץ...</p>
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-2">
+          <FileSpreadsheet className="w-10 h-10 text-gray-400" />
+          <p className="text-sm font-medium text-gray-700">{label}</p>
+          <p className="text-xs text-gray-400">גרור לכאן קובץ Excel או CSV, או לחץ לבחירה</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function UploadResult({ result, error }: { result?: any; error?: string }) {
+  if (error) return (
+    <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg mt-3">
+      <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+      <p className="text-sm text-red-700">{error}</p>
+    </div>
+  );
+  if (result) return (
+    <div className="flex items-center gap-2 p-3 bg-green-50 border border-green-200 rounded-lg mt-3">
+      <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" />
+      <p className="text-sm text-green-700">{result.message}</p>
+    </div>
+  );
+  return null;
+}
+
 // === Mortgage Section ===
 function MortgageSection({ propertyId, mortgages, onRefresh }: { propertyId: number; mortgages: Mortgage[]; onRefresh: () => void }) {
   const [showForm, setShowForm] = useState(false);
   const [showPaymentForm, setShowPaymentForm] = useState<number | null>(null);
   const [payments, setPayments] = useState<Record<number, MortgagePayment[]>>({});
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<any>(null);
+  const [uploadError, setUploadError] = useState<string>('');
+  const [uploadForMortgage, setUploadForMortgage] = useState<number | null>(null);
 
   async function loadPayments(mortgageId: number) {
     const p = await getMortgagePayments(mortgageId);
     setPayments(prev => ({ ...prev, [mortgageId]: p }));
+  }
+
+  async function handleUpload(mortgageId: number, file: File) {
+    setUploading(true);
+    setUploadResult(null);
+    setUploadError('');
+    setUploadForMortgage(mortgageId);
+    try {
+      const result = await uploadMortgageReport(mortgageId, file);
+      setUploadResult(result);
+      loadPayments(mortgageId);
+      onRefresh();
+    } catch (err: any) {
+      setUploadError(err.message);
+    } finally {
+      setUploading(false);
+    }
   }
 
   return (
@@ -107,28 +189,39 @@ function MortgageSection({ propertyId, mortgages, onRefresh }: { propertyId: num
 
       {showForm && <MortgageForm propertyId={propertyId} onSave={() => { onRefresh(); setShowForm(false); }} onCancel={() => setShowForm(false)} />}
 
-      {mortgages.length === 0 && !showForm && <p className="text-gray-400 text-center py-8">לא הוספת משכנתא עדיין</p>}
+      {mortgages.length === 0 && !showForm && (
+        <div className="text-center py-12">
+          <Landmark className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-400 mb-2">לא הוספת משכנתא עדיין</p>
+          <p className="text-sm text-gray-400">הוסף את פרטי המשכנתא ותוכל לייבא את הדוח מהבנק</p>
+        </div>
+      )}
 
       {mortgages.map(mortgage => (
         <div key={mortgage.id} className="card mb-4">
           <div className="flex justify-between items-start mb-3">
             <div>
-              <h4 className="font-bold">{mortgage.bank_name}</h4>
-              <p className="text-sm text-gray-500">סכום מקורי: {formatCurrency(mortgage.original_amount)} | {mortgage.term_months} חודשים | מתאריך {formatDate(mortgage.start_date)}</p>
+              <h4 className="font-bold text-lg">{mortgage.bank_name}</h4>
+              <p className="text-sm text-gray-500">
+                סכום מקורי: {formatCurrency(mortgage.original_amount)} | {mortgage.term_months} חודשים | מתאריך {formatDate(mortgage.start_date)}
+              </p>
             </div>
-            <button onClick={async () => { await deleteMortgage(mortgage.id); onRefresh(); }} className="text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+            <button onClick={async () => { if (confirm('בטוח?')) { await deleteMortgage(mortgage.id); onRefresh(); }}} className="text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
           </div>
 
+          {/* Tracks */}
           {mortgage.tracks && mortgage.tracks.length > 0 && (
             <div className="mb-3">
-              <p className="text-xs font-medium text-gray-500 mb-2">מסלולים:</p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              <p className="text-xs font-medium text-gray-500 mb-2">מסלולים ({mortgage.tracks.length}):</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
                 {mortgage.tracks.map(track => (
-                  <div key={track.id} className="bg-gray-50 rounded-lg p-3 text-sm">
-                    <div className="font-medium">{track.track_name}</div>
-                    <div className="text-gray-500">
-                      {TRACK_TYPES[track.track_type] || track.track_type} | {track.interest_rate}% | {formatCurrency(track.original_amount)}
-                      {track.is_cpi_linked ? ' | צמוד מדד' : ''}
+                  <div key={track.id} className="bg-gray-50 rounded-lg p-3 text-sm border border-gray-100">
+                    <div className="font-medium text-gray-900">{track.track_name}</div>
+                    <div className="text-gray-500 mt-1 space-y-0.5">
+                      <div>סוג: {TRACK_TYPES[track.track_type] || track.track_type}</div>
+                      <div>ריבית: <span className="font-medium text-gray-700">{track.interest_rate}%</span></div>
+                      <div>סכום: {formatCurrency(track.original_amount)}</div>
+                      {track.is_cpi_linked ? <div className="text-orange-600 font-medium">צמוד מדד</div> : null}
                     </div>
                   </div>
                 ))}
@@ -136,33 +229,74 @@ function MortgageSection({ propertyId, mortgages, onRefresh }: { propertyId: num
             </div>
           )}
 
-          <div className="flex gap-2">
+          {/* Actions */}
+          <div className="flex gap-2 flex-wrap">
             <button
               onClick={() => { setShowPaymentForm(showPaymentForm === mortgage.id ? null : mortgage.id); loadPayments(mortgage.id); }}
               className="btn-secondary text-sm"
             >
-              {showPaymentForm === mortgage.id ? 'סגור' : 'תשלומים'}
+              {showPaymentForm === mortgage.id ? 'סגור תשלומים' : 'הוסף/צפה בתשלומים'}
+            </button>
+            <button
+              onClick={() => setUploadForMortgage(uploadForMortgage === mortgage.id ? null : mortgage.id)}
+              className="btn-secondary text-sm flex items-center gap-1"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              {uploadForMortgage === mortgage.id ? 'סגור ייבוא' : 'ייבא דוח מהבנק'}
             </button>
           </div>
 
+          {/* Upload Zone */}
+          {uploadForMortgage === mortgage.id && (
+            <div className="mt-4">
+              <FileUploadZone
+                onUpload={(file) => handleUpload(mortgage.id, file)}
+                label="העלה דוח משכנתא מהבנק (Excel/CSV)"
+                uploading={uploading}
+              />
+              <UploadResult result={uploadResult} error={uploadError} />
+              <p className="text-xs text-gray-400 mt-2">
+                הקובץ צריך לכלול עמודות: תאריך, סכום תשלום, קרן, ריבית (ואופציונלי: הצמדה, יתרה)
+              </p>
+            </div>
+          )}
+
+          {/* Payments */}
           {showPaymentForm === mortgage.id && (
             <div className="mt-4 border-t pt-4">
               <PaymentForm mortgageId={mortgage.id} onSave={() => { loadPayments(mortgage.id); onRefresh(); }} />
               {payments[mortgage.id] && payments[mortgage.id].length > 0 && (
-                <div className="mt-3 max-h-60 overflow-y-auto">
-                  <table className="w-full text-sm">
-                    <thead className="text-gray-500 text-xs"><tr><th className="text-right py-1">תאריך</th><th className="text-right">סה"כ</th><th className="text-right">קרן</th><th className="text-right">ריבית</th></tr></thead>
-                    <tbody>
-                      {payments[mortgage.id].map(p => (
-                        <tr key={p.id} className="border-t border-gray-50">
-                          <td className="py-1">{formatDate(p.date)}</td>
-                          <td>{formatCurrency(p.total_amount)}</td>
-                          <td>{formatCurrency(p.principal)}</td>
-                          <td>{formatCurrency(p.interest)}</td>
+                <div className="mt-3">
+                  <p className="text-sm font-medium text-gray-600 mb-2">
+                    {payments[mortgage.id].length} תשלומים |
+                    סה"כ: {formatCurrency(payments[mortgage.id].reduce((s, p) => s + p.total_amount, 0))}
+                  </p>
+                  <div className="max-h-60 overflow-y-auto border border-gray-100 rounded-lg">
+                    <table className="w-full text-sm">
+                      <thead className="text-gray-500 text-xs bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="text-right py-2 px-3">תאריך</th>
+                          <th className="text-right px-3">סה"כ</th>
+                          <th className="text-right px-3">קרן</th>
+                          <th className="text-right px-3">ריבית</th>
+                          <th className="text-right px-3">הצמדה</th>
+                          <th className="text-right px-3">יתרה</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {payments[mortgage.id].map(p => (
+                          <tr key={p.id} className="border-t border-gray-50 hover:bg-gray-50">
+                            <td className="py-1.5 px-3">{formatDate(p.date)}</td>
+                            <td className="px-3 font-medium">{formatCurrency(p.total_amount)}</td>
+                            <td className="px-3 text-green-700">{formatCurrency(p.principal)}</td>
+                            <td className="px-3 text-red-600">{formatCurrency(p.interest)}</td>
+                            <td className="px-3 text-orange-600">{p.cpi_addition ? formatCurrency(p.cpi_addition) : '—'}</td>
+                            <td className="px-3 text-gray-500">{p.remaining_balance ? formatCurrency(p.remaining_balance) : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>
@@ -175,14 +309,46 @@ function MortgageSection({ propertyId, mortgages, onRefresh }: { propertyId: num
 
 function MortgageForm({ propertyId, onSave, onCancel }: { propertyId: number; onSave: () => void; onCancel: () => void }) {
   const [form, setForm] = useState({ bank_name: '', original_amount: '', start_date: '', term_months: '' });
-  const [tracks, setTracks] = useState([{ track_name: 'מסלול 1', track_type: 'prime', original_amount: '', interest_rate: '', is_cpi_linked: false, term_months: '' }]);
+  const [tracks, setTracks] = useState([
+    { track_name: 'מסלול 1', track_type: 'prime', original_amount: '', interest_rate: '', is_cpi_linked: false, term_months: '' },
+  ]);
+
+  function addTrack() {
+    setTracks([...tracks, {
+      track_name: `מסלול ${tracks.length + 1}`,
+      track_type: 'prime',
+      original_amount: '',
+      interest_rate: '',
+      is_cpi_linked: false,
+      term_months: '',
+    }]);
+  }
+
+  function updateTrack(index: number, field: string, value: any) {
+    const updated = [...tracks];
+    (updated[index] as any)[field] = value;
+    // Auto-set CPI linked based on track type
+    if (field === 'track_type') {
+      updated[index].is_cpi_linked = value.startsWith('cpi_');
+    }
+    setTracks(updated);
+  }
+
+  function removeTrack(index: number) {
+    setTracks(tracks.filter((_, i) => i !== index));
+  }
+
+  // Auto-calculate total from tracks
+  const tracksTotal = tracks.reduce((s, t) => s + (Number(t.original_amount) || 0), 0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const totalAmount = Number(form.original_amount) || tracksTotal;
     await createMortgage({
       property_id: propertyId,
-      ...form,
-      original_amount: Number(form.original_amount),
+      bank_name: form.bank_name,
+      original_amount: totalAmount,
+      start_date: form.start_date,
       term_months: Number(form.term_months),
       tracks: tracks.map(t => ({
         ...t,
@@ -196,37 +362,86 @@ function MortgageForm({ propertyId, onSave, onCancel }: { propertyId: number; on
 
   return (
     <form onSubmit={handleSubmit} className="card mb-4 border-primary-200 bg-primary-50/30">
-      <h4 className="font-bold mb-3">משכנתא חדשה</h4>
+      <h4 className="font-bold mb-3 text-lg">משכנתא חדשה</h4>
+
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <div><label className="label">בנק *</label><input className="input-field" value={form.bank_name} onChange={e => setForm({...form, bank_name: e.target.value})} required /></div>
-        <div><label className="label">סכום מקורי *</label><input type="number" className="input-field" value={form.original_amount} onChange={e => setForm({...form, original_amount: e.target.value})} required /></div>
-        <div><label className="label">תאריך התחלה *</label><input type="date" className="input-field" value={form.start_date} onChange={e => setForm({...form, start_date: e.target.value})} required /></div>
-        <div><label className="label">תקופה (חודשים) *</label><input type="number" className="input-field" value={form.term_months} onChange={e => setForm({...form, term_months: e.target.value})} required /></div>
+        <div>
+          <label className="label">בנק *</label>
+          <select className="input-field" value={form.bank_name} onChange={e => setForm({...form, bank_name: e.target.value})} required>
+            <option value="">בחר בנק...</option>
+            <option value="בנק הפועלים">בנק הפועלים</option>
+            <option value="בנק לאומי">בנק לאומי</option>
+            <option value="בנק דיסקונט">בנק דיסקונט</option>
+            <option value="בנק מזרחי טפחות">בנק מזרחי טפחות</option>
+            <option value="בנק הבינלאומי">בנק הבינלאומי</option>
+            <option value="בנק ירושלים">בנק ירושלים</option>
+            <option value="אחר">אחר</option>
+          </select>
+        </div>
+        <div>
+          <label className="label">סכום מקורי *</label>
+          <input type="number" className="input-field" placeholder="700,000" value={form.original_amount} onChange={e => setForm({...form, original_amount: e.target.value})} required />
+          {tracksTotal > 0 && !form.original_amount && <p className="text-xs text-gray-400 mt-1">סה"כ ממסלולים: {formatCurrency(tracksTotal)}</p>}
+        </div>
+        <div>
+          <label className="label">תאריך התחלה *</label>
+          <input type="date" className="input-field" value={form.start_date} onChange={e => setForm({...form, start_date: e.target.value})} required />
+        </div>
+        <div>
+          <label className="label">תקופה (חודשים) *</label>
+          <input type="number" className="input-field" placeholder="300" value={form.term_months} onChange={e => setForm({...form, term_months: e.target.value})} required />
+          {form.term_months && <p className="text-xs text-gray-400 mt-1">{Math.round(Number(form.term_months) / 12)} שנים</p>}
+        </div>
       </div>
 
-      <div className="mb-3">
+      <div className="mb-4">
         <div className="flex justify-between items-center mb-2">
-          <p className="text-sm font-medium">מסלולים</p>
-          <button type="button" onClick={() => setTracks([...tracks, { track_name: `מסלול ${tracks.length + 1}`, track_type: 'prime', original_amount: '', interest_rate: '', is_cpi_linked: false, term_months: '' }])} className="text-primary-600 text-sm">+ מסלול</button>
+          <p className="text-sm font-bold">מסלולי משכנתא ({tracks.length})</p>
+          <button type="button" onClick={addTrack} className="text-primary-600 text-sm font-medium hover:text-primary-700">+ הוסף מסלול</button>
         </div>
-        {tracks.map((track, i) => (
-          <div key={i} className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-2 p-3 bg-white rounded-lg">
-            <div><label className="label text-xs">שם</label><input className="input-field text-sm" value={track.track_name} onChange={e => { const t = [...tracks]; t[i].track_name = e.target.value; setTracks(t); }} /></div>
-            <div><label className="label text-xs">סוג</label><select className="input-field text-sm" value={track.track_type} onChange={e => { const t = [...tracks]; t[i].track_type = e.target.value; setTracks(t); }}>
-              {Object.entries(TRACK_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select></div>
-            <div><label className="label text-xs">סכום</label><input type="number" className="input-field text-sm" value={track.original_amount} onChange={e => { const t = [...tracks]; t[i].original_amount = e.target.value; setTracks(t); }} /></div>
-            <div><label className="label text-xs">ריבית %</label><input type="number" step="0.01" className="input-field text-sm" value={track.interest_rate} onChange={e => { const t = [...tracks]; t[i].interest_rate = e.target.value; setTracks(t); }} /></div>
-            <div className="flex items-end gap-2">
-              <label className="flex items-center gap-1 text-sm"><input type="checkbox" checked={track.is_cpi_linked} onChange={e => { const t = [...tracks]; t[i].is_cpi_linked = e.target.checked; setTracks(t); }} /> צמוד מדד</label>
-              {tracks.length > 1 && <button type="button" onClick={() => setTracks(tracks.filter((_, j) => j !== i))} className="text-red-400 hover:text-red-600"><X className="w-4 h-4" /></button>}
+        <div className="space-y-2">
+          {tracks.map((track, i) => (
+            <div key={i} className="grid grid-cols-2 md:grid-cols-6 gap-2 p-3 bg-white rounded-lg border border-gray-100">
+              <div>
+                <label className="label text-xs">שם המסלול</label>
+                <input className="input-field text-sm" value={track.track_name} onChange={e => updateTrack(i, 'track_name', e.target.value)} />
+              </div>
+              <div>
+                <label className="label text-xs">סוג מסלול</label>
+                <select className="input-field text-sm" value={track.track_type} onChange={e => updateTrack(i, 'track_type', e.target.value)}>
+                  {Object.entries(TRACK_TYPES).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label text-xs">סכום</label>
+                <input type="number" className="input-field text-sm" placeholder="0" value={track.original_amount} onChange={e => updateTrack(i, 'original_amount', e.target.value)} />
+              </div>
+              <div>
+                <label className="label text-xs">ריבית %</label>
+                <input type="number" step="0.01" className="input-field text-sm" placeholder="2.5" value={track.interest_rate} onChange={e => updateTrack(i, 'interest_rate', e.target.value)} />
+              </div>
+              <div>
+                <label className="label text-xs">תקופה (חודשים)</label>
+                <input type="number" className="input-field text-sm" placeholder={form.term_months || 'כמו כללי'} value={track.term_months} onChange={e => updateTrack(i, 'term_months', e.target.value)} />
+              </div>
+              <div className="flex items-end gap-2">
+                <label className="flex items-center gap-1.5 text-sm py-2">
+                  <input type="checkbox" checked={track.is_cpi_linked} onChange={e => updateTrack(i, 'is_cpi_linked', e.target.checked)} className="rounded" />
+                  <span className="text-xs">צמוד מדד</span>
+                </label>
+                {tracks.length > 1 && (
+                  <button type="button" onClick={() => removeTrack(i)} className="text-red-400 hover:text-red-600 py-2">
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       <div className="flex gap-2">
-        <button type="submit" className="btn-primary text-sm">שמור</button>
+        <button type="submit" className="btn-primary text-sm">שמור משכנתא</button>
         <button type="button" onClick={onCancel} className="btn-secondary text-sm">ביטול</button>
       </div>
     </form>
@@ -235,6 +450,21 @@ function MortgageForm({ propertyId, onSave, onCancel }: { propertyId: number; on
 
 function PaymentForm({ mortgageId, onSave }: { mortgageId: number; onSave: () => void }) {
   const [form, setForm] = useState({ date: '', total_amount: '', principal: '', interest: '', cpi_addition: '' });
+
+  // Auto-calculate: if total and interest filled, compute principal
+  function handleChange(field: string, value: string) {
+    const updated = { ...form, [field]: value };
+    const total = Number(updated.total_amount) || 0;
+    const interest = Number(updated.interest) || 0;
+    const cpi = Number(updated.cpi_addition) || 0;
+
+    if (field === 'total_amount' || field === 'interest' || field === 'cpi_addition') {
+      if (total > 0 && interest > 0 && !updated.principal) {
+        updated.principal = String(Math.round((total - interest - cpi) * 100) / 100);
+      }
+    }
+    setForm(updated);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -250,13 +480,13 @@ function PaymentForm({ mortgageId, onSave }: { mortgageId: number; onSave: () =>
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-wrap gap-2 items-end">
-      <div><label className="label text-xs">תאריך</label><input type="date" className="input-field text-sm" value={form.date} onChange={e => setForm({...form, date: e.target.value})} required /></div>
-      <div><label className="label text-xs">סה"כ</label><input type="number" className="input-field text-sm w-24" value={form.total_amount} onChange={e => setForm({...form, total_amount: e.target.value})} required /></div>
-      <div><label className="label text-xs">קרן</label><input type="number" className="input-field text-sm w-24" value={form.principal} onChange={e => setForm({...form, principal: e.target.value})} required /></div>
-      <div><label className="label text-xs">ריבית</label><input type="number" className="input-field text-sm w-24" value={form.interest} onChange={e => setForm({...form, interest: e.target.value})} required /></div>
-      <div><label className="label text-xs">הצמדה</label><input type="number" className="input-field text-sm w-24" value={form.cpi_addition} onChange={e => setForm({...form, cpi_addition: e.target.value})} /></div>
-      <button type="submit" className="btn-primary text-sm">הוסף</button>
+    <form onSubmit={handleSubmit} className="flex flex-wrap gap-2 items-end bg-gray-50 p-3 rounded-lg">
+      <div><label className="label text-xs">תאריך *</label><input type="date" className="input-field text-sm" value={form.date} onChange={e => handleChange('date', e.target.value)} required /></div>
+      <div><label className="label text-xs">סה"כ תשלום *</label><input type="number" step="0.01" className="input-field text-sm w-28" value={form.total_amount} onChange={e => handleChange('total_amount', e.target.value)} required /></div>
+      <div><label className="label text-xs">קרן</label><input type="number" step="0.01" className="input-field text-sm w-24" value={form.principal} onChange={e => handleChange('principal', e.target.value)} /></div>
+      <div><label className="label text-xs">ריבית</label><input type="number" step="0.01" className="input-field text-sm w-24" value={form.interest} onChange={e => handleChange('interest', e.target.value)} /></div>
+      <div><label className="label text-xs">הצמדה</label><input type="number" step="0.01" className="input-field text-sm w-24" value={form.cpi_addition} onChange={e => handleChange('cpi_addition', e.target.value)} /></div>
+      <button type="submit" className="btn-primary text-sm">הוסף תשלום</button>
     </form>
   );
 }
@@ -264,13 +494,45 @@ function PaymentForm({ mortgageId, onSave }: { mortgageId: number; onSave: () =>
 // === Tenants Section ===
 function TenantsSection({ propertyId, tenants, onRefresh }: { propertyId: number; tenants: Tenant[]; onRefresh: () => void }) {
   const [showForm, setShowForm] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<any>(null);
+  const [uploadError, setUploadError] = useState<string>('');
+  const [showUpload, setShowUpload] = useState(false);
+
+  async function handleUpload(file: File) {
+    setUploading(true);
+    setUploadResult(null);
+    setUploadError('');
+    try {
+      const result = await uploadRentalPayments(propertyId, file);
+      setUploadResult(result);
+      onRefresh();
+    } catch (err: any) {
+      setUploadError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
 
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-bold">שוכרים</h3>
-        <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-1 text-sm"><Plus className="w-4 h-4" /> הוסף שוכר</button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowUpload(!showUpload)} className="btn-secondary flex items-center gap-1 text-sm">
+            <Upload className="w-3.5 h-3.5" />
+            ייבא תשלומים
+          </button>
+          <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-1 text-sm"><Plus className="w-4 h-4" /> הוסף שוכר</button>
+        </div>
       </div>
+
+      {showUpload && (
+        <div className="mb-4">
+          <FileUploadZone onUpload={handleUpload} label="העלה רשימת תשלומי שכירות (Excel/CSV)" uploading={uploading} />
+          <UploadResult result={uploadResult} error={uploadError} />
+        </div>
+      )}
 
       {showForm && <TenantForm propertyId={propertyId} onSave={() => { onRefresh(); setShowForm(false); }} onCancel={() => setShowForm(false)} />}
 
@@ -288,7 +550,7 @@ function TenantsSection({ propertyId, tenants, onRefresh }: { propertyId: number
             </div>
             <div className="flex items-center gap-2">
               <AddRentalPaymentBtn tenantId={tenant.id} monthlyRent={tenant.monthly_rent} onSave={onRefresh} />
-              <button onClick={async () => { await deleteTenant(tenant.id); onRefresh(); }} className="text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+              <button onClick={async () => { if (confirm('בטוח?')) { await deleteTenant(tenant.id); onRefresh(); }}} className="text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
             </div>
           </div>
         </div>
@@ -336,14 +598,14 @@ function AddRentalPaymentBtn({ tenantId, monthlyRent, onSave }: { tenantId: numb
     onSave();
   }
 
-  if (!show) return <button onClick={() => setShow(true)} className="text-green-600 hover:text-green-700 text-sm">+ תשלום</button>;
+  if (!show) return <button onClick={() => setShow(true)} className="text-green-600 hover:text-green-700 text-sm font-medium">+ תשלום</button>;
 
   return (
     <form onSubmit={handleSubmit} className="flex gap-1 items-center">
       <input type="date" className="input-field text-xs w-32" value={form.date} onChange={e => setForm({...form, date: e.target.value})} required />
       <input type="number" className="input-field text-xs w-20" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} required />
-      <button type="submit" className="btn-success text-xs py-1 px-2">✓</button>
-      <button type="button" onClick={() => setShow(false)} className="text-gray-400 text-xs">✕</button>
+      <button type="submit" className="btn-primary text-xs py-1 px-2">V</button>
+      <button type="button" onClick={() => setShow(false)} className="text-gray-400 text-xs">X</button>
     </form>
   );
 }
@@ -351,15 +613,73 @@ function AddRentalPaymentBtn({ tenantId, monthlyRent, onSave }: { tenantId: numb
 // === Expenses Section ===
 function ExpensesSection({ propertyId, expenses, onRefresh }: { propertyId: number; expenses: Expense[]; onRefresh: () => void }) {
   const [showForm, setShowForm] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<any>(null);
+  const [uploadError, setUploadError] = useState<string>('');
+  const [showUpload, setShowUpload] = useState(false);
+
+  async function handleUpload(file: File) {
+    setUploading(true);
+    setUploadResult(null);
+    setUploadError('');
+    try {
+      const result = await uploadExpenses(propertyId, file);
+      setUploadResult(result);
+      onRefresh();
+    } catch (err: any) {
+      setUploadError(err.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  // Group expenses by category for summary
+  const byCategory: Record<string, number> = {};
+  let totalExpenses = 0;
+  for (const e of expenses) {
+    byCategory[e.category] = (byCategory[e.category] || 0) + e.amount;
+    totalExpenses += e.amount;
+  }
 
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-lg font-bold">הוצאות</h3>
-        <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-1 text-sm"><Plus className="w-4 h-4" /> הוסף הוצאה</button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowUpload(!showUpload)} className="btn-secondary flex items-center gap-1 text-sm">
+            <Upload className="w-3.5 h-3.5" />
+            ייבא מאקסל
+          </button>
+          <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-1 text-sm"><Plus className="w-4 h-4" /> הוסף הוצאה</button>
+        </div>
       </div>
 
+      {showUpload && (
+        <div className="mb-4">
+          <FileUploadZone onUpload={handleUpload} label="העלה רשימת הוצאות (Excel/CSV)" uploading={uploading} />
+          <UploadResult result={uploadResult} error={uploadError} />
+        </div>
+      )}
+
       {showForm && <ExpenseForm propertyId={propertyId} onSave={() => { onRefresh(); setShowForm(false); }} onCancel={() => setShowForm(false)} />}
+
+      {/* Summary */}
+      {expenses.length > 0 && (
+        <div className="card mb-4 bg-gray-50">
+          <div className="flex justify-between items-center mb-2">
+            <p className="font-bold">סיכום הוצאות</p>
+            <p className="font-bold text-lg text-red-600">{formatCurrency(totalExpenses)}</p>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            {Object.entries(byCategory).sort((a, b) => b[1] - a[1]).map(([cat, amount]) => (
+              <div key={cat} className="text-sm">
+                <span className="text-gray-500">{EXPENSE_CATEGORIES[cat] || cat}: </span>
+                <span className="font-medium">{formatCurrency(amount)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {expenses.length === 0 && !showForm && <p className="text-gray-400 text-center py-8">לא הוספת הוצאות עדיין</p>}
 
@@ -373,7 +693,7 @@ function ExpensesSection({ propertyId, expenses, onRefresh }: { propertyId: numb
             </div>
             <div className="flex items-center gap-3">
               <span className="text-sm text-gray-400">{formatDate(expense.date)}</span>
-              <button onClick={async () => { await deleteExpense(expense.id); onRefresh(); }} className="text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
+              <button onClick={async () => { if (confirm('בטוח?')) { await deleteExpense(expense.id); onRefresh(); }}} className="text-gray-400 hover:text-red-500"><Trash2 className="w-4 h-4" /></button>
             </div>
           </div>
         ))}
