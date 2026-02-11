@@ -1,7 +1,8 @@
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Building2, LayoutDashboard, TrendingUp, Lightbulb } from 'lucide-react';
+import { Building2, BookOpen, LayoutDashboard, TrendingUp, Lightbulb } from 'lucide-react';
 import PropertiesPage from './pages/PropertiesPage';
 import PropertyDetailPage from './pages/PropertyDetailPage';
+import MoneyStoryPage from './pages/MoneyStoryPage';
 import DashboardPage from './pages/DashboardPage';
 import ForecastPage from './pages/ForecastPage';
 import RecommendationsPage from './pages/RecommendationsPage';
@@ -11,6 +12,7 @@ function App() {
 
   const navItems = [
     { path: '/', label: 'נכסים', icon: Building2 },
+    { path: '/story', label: 'הסיפור של הכסף', icon: BookOpen },
     { path: '/dashboard', label: 'דשבורד', icon: LayoutDashboard },
     { path: '/forecast', label: 'תחזיות', icon: TrendingUp },
     { path: '/recommendations', label: 'המלצות', icon: Lightbulb },
@@ -55,6 +57,7 @@ function App() {
         <Routes>
           <Route path="/" element={<PropertiesPage />} />
           <Route path="/property/:id" element={<PropertyDetailPage />} />
+          <Route path="/story" element={<MoneyStoryPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/forecast" element={<ForecastPage />} />
           <Route path="/recommendations" element={<RecommendationsPage />} />

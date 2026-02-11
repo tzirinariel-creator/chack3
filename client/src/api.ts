@@ -48,6 +48,10 @@ export const getForecasts = (propertyId: number) => request<any[]>(`/analytics/f
 export const getRecommendations = (propertyId: number) => request<any[]>(`/analytics/recommendations/${propertyId}`);
 export const getCompleteAnalysis = (propertyId: number) => request<any>(`/analytics/complete/${propertyId}`);
 
+// Sale Calculator
+export const getSaleCalculation = (propertyId: number, salePrice: number) =>
+  request<any>(`/sale/${propertyId}?price=${salePrice}`);
+
 // File Upload
 export async function uploadMortgageReport(mortgageId: number, file: File): Promise<any> {
   const formData = new FormData();
