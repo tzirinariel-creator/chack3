@@ -110,6 +110,26 @@ export function initDatabase() {
       notes TEXT,
       created_at TEXT DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS purchase_costs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+      category TEXT NOT NULL,
+      amount REAL NOT NULL,
+      description TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sale_costs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      property_id INTEGER NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+      category TEXT NOT NULL,
+      amount REAL NOT NULL,
+      description TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   console.log('Database initialized successfully');

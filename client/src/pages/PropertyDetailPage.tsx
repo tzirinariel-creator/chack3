@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowRight, Landmark, Users, Receipt, Plus, Trash2, X, Upload, FileSpreadsheet, CheckCircle, AlertCircle } from 'lucide-react';
-import { getProperty, getMortgages, createMortgage, deleteMortgage, addMortgagePayment, getMortgagePayments, getTenants, createTenant, deleteTenant, addRentalPayment, getExpenses, createExpense, deleteExpense, uploadMortgageReport, uploadExpenses, uploadRentalPayments } from '../api';
+import { ArrowRight, Landmark, Users, Receipt, Plus, Trash2, X, Upload, FileSpreadsheet, CheckCircle, AlertCircle, Coins } from 'lucide-react';
+import { getProperty, getMortgages, createMortgage, deleteMortgage, addMortgagePayment, getMortgagePayments, getTenants, createTenant, deleteTenant, addRentalPayment, getExpenses, createExpense, deleteExpense, uploadMortgageReport, uploadExpenses, uploadRentalPayments, getPurchaseCosts, addPurchaseCost, deletePurchaseCost } from '../api';
 import { Property, Mortgage, MortgagePayment, Tenant, Expense, EXPENSE_CATEGORIES, TRACK_TYPES } from '../types';
 import { formatCurrency, formatDate } from '../utils/format';
 
@@ -12,23 +12,26 @@ export default function PropertyDetailPage() {
   const [mortgages, setMortgages] = useState<Mortgage[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [activeTab, setActiveTab] = useState<'mortgage' | 'tenants' | 'expenses'>('mortgage');
+  const [purchaseCosts, setPurchaseCosts] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'costs' | 'mortgage' | 'tenants' | 'expenses'>('costs');
   const [loading, setLoading] = useState(true);
 
   useEffect(() => { loadAll(); }, [propertyId]);
 
   async function loadAll() {
     try {
-      const [prop, mort, ten, exp] = await Promise.all([
+      const [prop, mort, ten, exp, costs] = await Promise.all([
         getProperty(propertyId),
         getMortgages(propertyId),
         getTenants(propertyId),
         getExpenses(propertyId),
+        getPurchaseCosts(propertyId),
       ]);
       setProperty(prop);
       setMortgages(mort);
       setTenants(ten);
       setExpenses(exp);
+      setPurchaseCosts(costs);
     } catch (err) {
       console.error(err);
     } finally {
@@ -39,7 +42,10 @@ export default function PropertyDetailPage() {
   if (loading) return <div className="text-center py-12 text-gray-500">טוען...</div>;
   if (!property) return <div className="text-center py-12 text-red-500">נכס לא נמצא</div>;
 
+  const purchaseCostsTotal = purchaseCosts.reduce((s, c) => s + c.amount, 0);
+
   const tabs = [
+    { key: 'costs' as const, label: 'עלויות רכישה', icon: Coins, count: purchaseCosts.length },
     { key: 'mortgage' as const, label: 'משכנתא', icon: Landmark, count: mortgages.length },
     { key: 'tenants' as const, label: 'שוכרים', icon: Users, count: tenants.length },
     { key: 'expenses' as const, label: 'הוצאות', icon: Receipt, count: expenses.length },
@@ -57,7 +63,7 @@ export default function PropertyDetailPage() {
         <p className="text-gray-500 mb-4">{property.address}, {property.city}</p>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div><span className="text-xs text-gray-400">מחיר רכישה</span><div className="font-bold">{formatCurrency(property.purchase_price)}</div></div>
-          <div><span className="text-xs text-gray-400">עלויות נוספות</span><div className="font-bold">{formatCurrency(property.additional_purchase_costs)}</div></div>
+          <div><span className="text-xs text-gray-400">עלויות נוספות</span><div className="font-bold">{formatCurrency(purchaseCostsTotal > 0 ? purchaseCostsTotal : property.additional_purchase_costs)}</div>{purchaseCosts.length > 0 && <span className="text-xs text-green-600">{purchaseCosts.length} פריטים</span>}</div>
           <div><span className="text-xs text-gray-400">שווי נוכחי</span><div className="font-bold">{property.current_estimated_value ? formatCurrency(property.current_estimated_value) : '—'}</div></div>
           <div><span className="text-xs text-gray-400">תאריך רכישה</span><div className="font-bold">{formatDate(property.purchase_date)}</div></div>
         </div>
@@ -80,6 +86,7 @@ export default function PropertyDetailPage() {
         ))}
       </div>
 
+      {activeTab === 'costs' && <PurchaseCostsSection propertyId={propertyId} costs={purchaseCosts} onRefresh={loadAll} />}
       {activeTab === 'mortgage' && <MortgageSection propertyId={propertyId} mortgages={mortgages} onRefresh={loadAll} />}
       {activeTab === 'tenants' && <TenantsSection propertyId={propertyId} tenants={tenants} onRefresh={loadAll} />}
       {activeTab === 'expenses' && <ExpensesSection propertyId={propertyId} expenses={expenses} onRefresh={loadAll} />}
@@ -146,6 +153,148 @@ function UploadResult({ result, error }: { result?: any; error?: string }) {
     </div>
   );
   return null;
+}
+
+// === Purchase Costs Section ===
+const PURCHASE_COST_CATEGORIES: Record<string, string> = {
+  agent_buy: 'תיווך קנייה',
+  lawyer_buy: 'עו"ד רכישה',
+  purchase_tax: 'מס רכישה',
+  renovation: 'שיפוץ / סטיילינג',
+  appraisal: 'שמאות',
+  mortgage_file: 'פתיחת תיק משכנתא / יועץ',
+  ownership_transfer: 'העברת בעלות / רישום בטאבו',
+  moving: 'העברה / הובלה',
+  utilities_transfer: 'העברת חשבונות',
+  other_purchase: 'אחר',
+};
+
+function PurchaseCostsSection({ propertyId, costs, onRefresh }: { propertyId: number; costs: any[]; onRefresh: () => void }) {
+  const [showForm, setShowForm] = useState(false);
+  const [newCost, setNewCost] = useState({ category: 'agent_buy', amount: '', description: '' });
+  const [saving, setSaving] = useState(false);
+
+  const total = costs.reduce((s, c) => s + c.amount, 0);
+
+  async function handleAdd(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await addPurchaseCost({
+        property_id: propertyId,
+        category: newCost.category,
+        amount: Number(newCost.amount),
+        description: newCost.description || null,
+      });
+      setNewCost({ category: 'agent_buy', amount: '', description: '' });
+      setShowForm(false);
+      onRefresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(id: number) {
+    if (confirm('למחוק את ההוצאה?')) {
+      await deletePurchaseCost(id);
+      onRefresh();
+    }
+  }
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-lg font-bold">עלויות רכישה</h3>
+        <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-1 text-sm">
+          <Plus className="w-4 h-4" /> הוסף עלות
+        </button>
+      </div>
+
+      <p className="text-sm text-gray-500 mb-4">
+        הכנס את כל ההוצאות שהיו ברכישת הנכס - תיווך, עו"ד, מס רכישה, שיפוץ, ועוד. כל שקל חשוב לחישוב המדויק.
+      </p>
+
+      {showForm && (
+        <form onSubmit={handleAdd} className="card mb-4 border-primary-200 bg-primary-50/30">
+          <h4 className="font-bold mb-3">הוסף עלות רכישה</h4>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="label">קטגוריה *</label>
+              <select className="input-field" value={newCost.category} onChange={e => setNewCost({ ...newCost, category: e.target.value })}>
+                {Object.entries(PURCHASE_COST_CATEGORIES).map(([k, v]) => (
+                  <option key={k} value={k}>{v}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">סכום *</label>
+              <input
+                type="number"
+                className="input-field"
+                placeholder="0"
+                value={newCost.amount}
+                onChange={e => setNewCost({ ...newCost, amount: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <label className="label">הערה</label>
+              <input
+                className="input-field"
+                placeholder="פירוט נוסף..."
+                value={newCost.description}
+                onChange={e => setNewCost({ ...newCost, description: e.target.value })}
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 mt-3">
+            <button type="submit" className="btn-primary text-sm" disabled={saving}>
+              {saving ? 'שומר...' : 'שמור'}
+            </button>
+            <button type="button" onClick={() => setShowForm(false)} className="btn-secondary text-sm">ביטול</button>
+          </div>
+        </form>
+      )}
+
+      {costs.length === 0 && !showForm && (
+        <div className="text-center py-12">
+          <Coins className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-400 mb-2">לא הוספת עלויות רכישה עדיין</p>
+          <p className="text-sm text-gray-400">הוסף את כל ההוצאות שהיו ברכישה: תיווך, עו"ד, מס רכישה, שיפוץ...</p>
+        </div>
+      )}
+
+      {costs.length > 0 && (
+        <>
+          {/* Summary */}
+          <div className="card mb-4 bg-blue-50 border border-blue-200">
+            <div className="flex justify-between items-center">
+              <p className="font-bold text-blue-800">סה"כ עלויות רכישה</p>
+              <p className="font-bold text-xl text-blue-900">{formatCurrency(total)}</p>
+            </div>
+          </div>
+
+          {/* Items */}
+          <div className="space-y-2">
+            {costs.map((cost: any) => (
+              <div key={cost.id} className="card py-3 flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
+                    {PURCHASE_COST_CATEGORIES[cost.category] || cost.category}
+                  </span>
+                  <span className="font-medium">{formatCurrency(cost.amount)}</span>
+                  {cost.description && <span className="text-sm text-gray-500">— {cost.description}</span>}
+                </div>
+                <button onClick={() => handleDelete(cost.id)} className="text-gray-400 hover:text-red-500">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
 
 // === Mortgage Section ===

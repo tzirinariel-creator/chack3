@@ -101,7 +101,21 @@ export default function MoneyStoryPage() {
             summary={`קנית את הדירה ב-${formatCurrency(story.purchase.propertyPrice)}`}
           >
             <StoryRow label="מחיר הדירה" value={formatCurrency(story.purchase.propertyPrice)} />
-            <StoryRow label='עלויות נוספות (עו"ד, מס, תיווך, שיפוץ)' value={formatCurrency(story.purchase.additionalCosts)} />
+            {story.purchase.hasDetailedCosts ? (
+              <>
+                <p className="text-xs font-medium text-gray-500 mt-3 mb-1">עלויות רכישה (פירוט):</p>
+                <div className="mr-4 space-y-1">
+                  {story.purchase.detailedCosts.map((cost: any, i: number) => (
+                    <StoryRow key={i} label={cost.categoryLabel + (cost.description ? ` (${cost.description})` : '')} value={formatCurrency(cost.amount)} />
+                  ))}
+                </div>
+                <div className="mt-2">
+                  <StoryRow label='סה"כ עלויות נלוות' value={formatCurrency(story.purchase.additionalCosts)} bold />
+                </div>
+              </>
+            ) : (
+              <StoryRow label='עלויות נוספות (עו"ד, מס, תיווך, שיפוץ)' value={formatCurrency(story.purchase.additionalCosts)} />
+            )}
             <StoryRow label='סה"כ עלות רכישה' value={formatCurrency(story.purchase.totalPurchaseCost)} bold />
             <div className="mt-3 pt-3 border-t border-gray-100">
               <StoryRow label="משכנתא שלקחת" value={formatCurrency(story.purchase.mortgageAmount)} />
@@ -199,9 +213,24 @@ export default function MoneyStoryPage() {
               <StoryRow label="עמלת מתווך (2%)" value={`-${formatCurrency(story.sale.agentFee)}`} color="red" />
               <StoryRow label='עו"ד' value={`-${formatCurrency(story.sale.lawyerFee)}`} color="red" />
               {story.sale.capitalGainsTax > 0 && (
-                <StoryRow label="מס שבח (25% על הרווח)" value={`-${formatCurrency(story.sale.capitalGainsTax)}`} color="red" />
+                <StoryRow label={story.sale.masShevach?.isSingleExempt ? 'מס שבח (פטור דירה יחידה)' : 'מס שבח'} value={`-${formatCurrency(story.sale.capitalGainsTax)}`} color="red" />
               )}
             </div>
+            {/* Mas Shevach breakdown */}
+            {story.sale.masShevach && story.sale.capitalGainsTax > 0 && (
+              <div className="mt-2 p-3 bg-orange-50 rounded-lg border border-orange-200">
+                <p className="text-xs font-medium text-orange-800 mb-2">פירוט מס שבח (חישוב ליניארי):</p>
+                <div className="space-y-1 text-xs">
+                  <div className="flex justify-between"><span className="text-gray-600">רווח נומינלי</span><span>{formatCurrency(story.sale.masShevach.nominalProfit)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-600">רווח ריאלי (אחרי מדד)</span><span>{formatCurrency(story.sale.masShevach.realProfit)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-600">רווח חייב במס</span><span>{formatCurrency(story.sale.masShevach.taxableProfit)}</span></div>
+                  {story.sale.masShevach.linearExemptPortion > 0 && (
+                    <div className="flex justify-between"><span className="text-gray-600">חלק פטור (לפני 2014)</span><span>{formatPercent(story.sale.masShevach.linearExemptPortion * 100)}</span></div>
+                  )}
+                  <div className="flex justify-between font-medium text-orange-900"><span>מס שבח סופי</span><span>{formatCurrency(story.sale.masShevach.taxAmount)}</span></div>
+                </div>
+              </div>
+            )}
             <StoryRow label="נטו ממכירה" value={formatCurrency(story.sale.netFromSale)} />
             <StoryRow label="פירעון יתרת משכנתא" value={`-${formatCurrency(story.sale.mortgagePayoff)}`} color="red" />
             <div className="mt-3 p-4 bg-purple-50 rounded-lg border border-purple-200">

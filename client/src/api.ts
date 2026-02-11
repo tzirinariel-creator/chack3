@@ -52,6 +52,14 @@ export const getCompleteAnalysis = (propertyId: number) => request<any>(`/analyt
 export const getSaleCalculation = (propertyId: number, salePrice: number) =>
   request<any>(`/sale/${propertyId}?price=${salePrice}`);
 
+// Purchase & Sale Costs
+export const getPurchaseCosts = (propertyId: number) => request<any[]>(`/costs/purchase/${propertyId}`);
+export const addPurchaseCost = (data: any) => request<any>('/costs/purchase', { method: 'POST', body: JSON.stringify(data) });
+export const deletePurchaseCost = (id: number) => request<any>(`/costs/purchase/${id}`, { method: 'DELETE' });
+export const getSaleCosts = (propertyId: number) => request<any[]>(`/costs/sale/${propertyId}`);
+export const addSaleCost = (data: any) => request<any>('/costs/sale', { method: 'POST', body: JSON.stringify(data) });
+export const deleteSaleCost = (id: number) => request<any>(`/costs/sale/${id}`, { method: 'DELETE' });
+
 // File Upload
 export async function uploadMortgageReport(mortgageId: number, file: File): Promise<any> {
   const formData = new FormData();

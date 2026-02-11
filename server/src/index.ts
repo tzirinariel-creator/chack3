@@ -8,6 +8,7 @@ import expensesRouter from './routes/expenses';
 import analyticsRouter from './routes/analytics';
 import uploadRouter from './routes/upload';
 import saleRouter from './routes/sale';
+import costsRouter from './routes/costs';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -26,6 +27,7 @@ app.use('/api/expenses', expensesRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/sale', saleRouter);
+app.use('/api/costs', costsRouter);
 
 app.listen(PORT, () => {
   console.log(`Chack3 server running on port ${PORT}`);
