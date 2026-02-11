@@ -52,6 +52,41 @@ export const getCompleteAnalysis = (propertyId: number) => request<any>(`/analyt
 export const getSaleCalculation = (propertyId: number, salePrice: number) =>
   request<any>(`/sale/${propertyId}?price=${salePrice}`);
 
+// Mortgage Timeline (for chart)
+export const getMortgageTimeline = (propertyId: number, inflation?: number, appreciation?: number, years?: number) =>
+  request<any>(`/sale/timeline/${propertyId}?inflation=${inflation ?? 0.025}&appreciation=${appreciation ?? 0.03}&years=${years ?? 3}`);
+
+// Upload bank balance report
+export async function uploadBankReport(propertyId: number, file: File): Promise<any> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${BASE}/sale/bank-report/${propertyId}`, {
+    method: 'POST',
+    body: formData,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'שגיאה בעיבוד הקובץ');
+  return data;
+}
+
+// Upload bank report and get timeline in one go
+export async function uploadBankReportWithTimeline(
+  propertyId: number, file: File, inflation?: number, appreciation?: number, years?: number
+): Promise<any> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('inflation', String(inflation ?? 0.025));
+  formData.append('appreciation', String(appreciation ?? 0.03));
+  formData.append('years', String(years ?? 3));
+  const res = await fetch(`${BASE}/sale/timeline/${propertyId}`, {
+    method: 'POST',
+    body: formData,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'שגיאה בעיבוד הקובץ');
+  return data;
+}
+
 // Purchase & Sale Costs
 export const getPurchaseCosts = (propertyId: number) => request<any[]>(`/costs/purchase/${propertyId}`);
 export const addPurchaseCost = (data: any) => request<any>('/costs/purchase', { method: 'POST', body: JSON.stringify(data) });

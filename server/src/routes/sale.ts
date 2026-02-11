@@ -1,7 +1,21 @@
 import { Router } from 'express';
 import { calculateInvestmentSummary } from '../services/calculator';
 import { calculateMasShevach, calculateMasRechisha, PURCHASE_COST_CATEGORIES, SALE_COST_CATEGORIES } from '../services/tax-engine';
+import { generateMortgageReplay, getCumulativeCPI } from '../services/mortgage-replay';
+import { parseBankReport } from '../services/mortgage-parser';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import db from '../database';
+
+const uploadDir = path.join(__dirname, '..', '..', 'uploads');
+if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: uploadDir,
+  filename: (_req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
+});
+const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 
 const router = Router();
 
@@ -164,14 +178,90 @@ function getCostByCategories(costs: any[], categories: string[]): number {
     .reduce((sum: number, c: any) => sum + c.amount, 0);
 }
 
-// Approximate CPI increase based on purchase date
-// (simplified - in production this would use actual CBS data)
+// Use real CPI data from mortgage-replay engine
 function estimateCPI(purchaseDate: string): number {
-  const purchase = new Date(purchaseDate);
-  const now = new Date();
-  const years = (now.getTime() - purchase.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
-  // Average Israeli CPI ~2.5% per year in recent years
-  return Math.round(years * 0.025 * 100) / 100;
+  return getCumulativeCPI(new Date(purchaseDate), new Date());
 }
+
+// Upload bank balance report and parse it
+router.post('/bank-report/:propertyId', upload.single('file'), (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'לא הועלה קובץ' });
+
+    const propertyId = Number(req.params.propertyId);
+    const property = db.prepare('SELECT * FROM properties WHERE id = ?').get(propertyId) as any;
+    if (!property) return res.status(404).json({ error: 'נכס לא נמצא' });
+
+    const report = parseBankReport(req.file.path);
+
+    // Clean up file
+    fs.unlinkSync(req.file.path);
+
+    if (report.tracks.length === 0) {
+      return res.status(400).json({
+        error: 'לא נמצאו מסלולי משכנתא בקובץ',
+        warnings: report.warnings,
+        rawHeaders: report.rawHeaders,
+      });
+    }
+
+    res.json({
+      message: `זוהו ${report.tracks.length} מסלולי משכנתא`,
+      report,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'שגיאה בעיבוד הקובץ' });
+  }
+});
+
+// Get mortgage replay timeline for chart
+router.get('/timeline/:propertyId', (req, res) => {
+  try {
+    const propertyId = Number(req.params.propertyId);
+    const forecastInflation = Number(req.query.inflation) || 0.025;
+    const forecastAppreciation = Number(req.query.appreciation) || 0.03;
+    const forecastYears = Number(req.query.years) || 3;
+
+    const replay = generateMortgageReplay(
+      propertyId,
+      null, // no bank report in simple GET (use POST for that)
+      forecastInflation,
+      forecastAppreciation,
+      forecastYears,
+    );
+
+    res.json(replay);
+  } catch (err: any) {
+    res.status(404).json({ error: err.message });
+  }
+});
+
+// Get mortgage replay with uploaded bank report
+router.post('/timeline/:propertyId', upload.single('file'), (req, res) => {
+  try {
+    const propertyId = Number(req.params.propertyId);
+    const forecastInflation = Number(req.body.inflation) || 0.025;
+    const forecastAppreciation = Number(req.body.appreciation) || 0.03;
+    const forecastYears = Number(req.body.years) || 3;
+
+    let bankReport = null;
+    if (req.file) {
+      bankReport = parseBankReport(req.file.path);
+      fs.unlinkSync(req.file.path);
+    }
+
+    const replay = generateMortgageReplay(
+      propertyId,
+      bankReport,
+      forecastInflation,
+      forecastAppreciation,
+      forecastYears,
+    );
+
+    res.json(replay);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 export default router;
